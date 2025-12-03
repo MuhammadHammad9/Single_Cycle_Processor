@@ -1,0 +1,50 @@
+`timescale 1ns / 1ps
+
+// ====================================================================
+// Assignment No. 3
+// Muhammad Hammad -2023420
+// Sajjad Akbar Khan - 2023634
+// Rehmat Ali -2023609
+// ====================================================================
+
+// ====================================================================
+// TESTBENCH
+// ====================================================================
+module cpu_tb;
+    reg clk;
+    reg reset;
+
+    wire [31:0] PC, instr;
+    wire [31:0] alu_res, mem_wdata, mem_rdata;
+    wire alu_src, mem_write, reg_write, mem_to_reg;
+    wire [31:0] reg_rdata1, reg_rdata2, alu_in2, imm;
+
+    cpu uut(
+        .clk(clk),
+        .reset(reset),
+        .PC(PC),
+        .instr(instr),
+        .alu_res(alu_res),
+        .mem_wdata(mem_wdata),
+        .mem_rdata(mem_rdata),
+        .alu_src(alu_src),
+        .mem_write(mem_write),
+        .reg_write(reg_write),
+        .mem_to_reg(mem_to_reg),
+        .reg_rdata1(reg_rdata1),
+        .reg_rdata2(reg_rdata2),
+        .alu_in2(alu_in2),
+        .imm(imm)
+    );
+
+    initial begin
+        clk = 0;
+        forever #5 clk = ~clk; // 10ns clock period
+    end
+
+    initial begin
+        reset = 1;
+        #12 reset = 0;
+        #200 $finish; // run for enough cycles
+    end
+endmodule

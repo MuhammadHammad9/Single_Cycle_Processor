@@ -1,0 +1,218 @@
+`timescale 1ns / 1ps
+
+// ====================================================================
+// Assignment No. 3
+// Muhammad Hammad -2023420
+// Sajjad Akbar Khan - 2023634
+// Rehmat Ali -2023609
+// ====================================================================
+
+
+// ====================================================================
+// Instruction Memory
+// ====================================================================
+module instruction_memory(
+    input  [31:0] read_address,
+    output [31:0] instruction_out
+);
+    reg [31:0] mem[0:63];
+    integer i;
+    initial begin
+        for (i=0;i<64;i=i+1) mem[i]=32'b0;
+        mem[0] = 32'h00200393; // addi x7, x0, 2
+        mem[1] = 32'h12300313; // addi x6, x0, 0x123
+        mem[2] = 32'h00732023; // sw x7,0(x6)  
+        mem[3] = 32'h00032403; // lw x8,0(x6)  
+        mem[4] = 32'h007404b3; // add x9,x8,x7
+    end
+    assign instruction_out = mem[read_address[31:2]];
+endmodule
+
+// ====================================================================
+// Data Memory (FIXED SIZE)
+// ====================================================================
+module data_memory(
+    input clk,
+    input mem_write,
+    input [31:0] addr,
+    input [31:0] write_data,
+    output [31:0] read_data
+);
+    reg [31:0] mem[0:127]; 
+    integer i;
+    initial begin
+        for (i=0;i<128;i=i+1) mem[i]=32'b0;
+    end
+    assign read_data = mem[addr[31:2]];
+    always @(posedge clk) begin
+        if(mem_write) mem[addr[31:2]] <= write_data;
+    end
+endmodule
+
+// ====================================================================
+// Register Flop
+// ====================================================================
+module register_flop #(parameter WIDTH=32)(
+    input clk, reset,
+    input [WIDTH-1:0] data_in,
+    output reg [WIDTH-1:0] data_out
+);
+    always @(posedge clk or posedge reset) begin
+        if (reset)
+            data_out <= {WIDTH{1'b0}};
+        else
+            data_out <= data_in;
+    end
+endmodule
+
+// ====================================================================
+// Register File
+// ====================================================================
+module regfile(
+    input clk,
+    input reg_write,
+    input [4:0] rs1,
+    input [4:0] rs2,
+    input [4:0] rd,
+    input [31:0] write_data,
+    output [31:0] read_data1,
+    output [31:0] read_data2
+);
+    reg [31:0] regs[0:31];
+    integer i;
+    initial begin
+        for(i=0;i<32;i=i+1) regs[i]=32'b0;
+    end
+    assign read_data1 = (rs1==0)?0:regs[rs1];
+    assign read_data2 = (rs2==0)?0:regs[rs2];
+    always @(posedge clk) begin
+        if(reg_write && rd!=0)
+            regs[rd] <= write_data;
+    end
+endmodule
+
+// ====================================================================
+// Immediate Generator
+// ====================================================================
+module imm_gen(
+    input [31:0] instr,
+    output reg [31:0] imm_out
+);
+    always @* begin
+        case(instr[6:0])
+            7'b0010011,7'b0000011: // I-type (ADDI,LW)
+                imm_out = {{20{instr[31]}},instr[31:20]};
+            7'b0100011: // S-type (SW)
+                imm_out = {{20{instr[31]}},instr[31:25],instr[11:7]};
+            default:
+                imm_out = 32'b0;
+        endcase
+    end
+endmodule
+
+// ====================================================================
+// ALU
+// ====================================================================
+module alu(
+    input [31:0] a,b,
+    input [2:0] alu_control,
+    output reg [31:0] result
+);
+    always @* begin
+        case(alu_control)
+            3'b000: result = a + b; // ADD
+            default: result = 32'b0;
+        endcase
+    end
+endmodule
+
+// ====================================================================
+// Control Unit
+// ====================================================================
+module control_unit(
+    input [6:0] opcode,
+    output reg alu_src, mem_write, reg_write,
+    output reg mem_to_reg,
+    output reg [2:0] alu_control
+);
+    always @* begin
+        alu_src = 0; mem_write=0; reg_write=0; mem_to_reg=0; alu_control=3'b000;
+        case(opcode)
+            7'b0010011: begin // ADDI
+                alu_src=1; reg_write=1; alu_control=3'b000;
+            end
+            7'b0110011: begin // ADD
+                alu_src=0; reg_write=1; alu_control=3'b000;
+            end
+            7'b0000011: begin // LW
+                alu_src=1; reg_write=1; mem_to_reg=1; alu_control=3'b000;
+            end
+            7'b0100011: begin // SW
+                alu_src=1; mem_write=1; alu_control=3'b000;
+            end
+        endcase
+    end
+endmodule
+
+// ====================================================================
+// CPU Top-level with waveform-friendly outputs
+// ====================================================================
+module cpu(
+    input clk, reset,
+    output [31:0] PC, instr,
+    output [31:0] alu_res, mem_wdata, mem_rdata,
+    output alu_src, mem_write, reg_write, mem_to_reg,
+    output [31:0] reg_rdata1, reg_rdata2, alu_in2, imm
+);
+    wire [31:0] pc_next, pc_plus4;
+    wire [31:0] wb_data;
+    wire [2:0] alu_control_wire;
+
+    register_flop pc_reg(.clk(clk), .reset(reset), .data_in(pc_next), .data_out(PC));
+    assign pc_plus4 = PC + 4;
+    assign pc_next = pc_plus4;
+
+    instruction_memory imem(.read_address(PC), .instruction_out(instr));
+
+    control_unit ctrl(
+        .opcode(instr[6:0]), 
+        .alu_src(alu_src), 
+        .mem_write(mem_write), 
+        .reg_write(reg_write), 
+        .mem_to_reg(mem_to_reg), 
+        .alu_control(alu_control_wire)
+    );
+
+    imm_gen ig(.instr(instr), .imm_out(imm));
+
+    regfile rf(
+        .clk(clk), 
+        .reg_write(reg_write), 
+        .rs1(instr[19:15]), 
+        .rs2(instr[24:20]), 
+        .rd(instr[11:7]), 
+        .write_data(wb_data), 
+        .read_data1(reg_rdata1), 
+        .read_data2(reg_rdata2)
+    );
+
+    assign alu_in2 = alu_src ? imm : reg_rdata2;
+
+    alu alu_inst(
+        .a(reg_rdata1), 
+        .b(alu_in2), 
+        .alu_control(alu_control_wire), 
+        .result(alu_res)
+    );
+
+    data_memory dmem(
+        .clk(clk), 
+        .mem_write(mem_write), 
+        .addr(alu_res), 
+        .write_data(reg_rdata2), 
+        .read_data(mem_rdata)
+    );
+
+    assign wb_data = mem_to_reg ? mem_rdata : alu_res;
+    assign mem_wdata = reg_rdata2;
+endmodule
